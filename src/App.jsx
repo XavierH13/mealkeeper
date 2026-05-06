@@ -374,6 +374,9 @@ function AuthScreen() {
 function RecipeForm({ initial, onSave, onCancel, title }) {
   const [r, setR] = useState(initial);
   const [customTagInput, setCustomTagInput] = useState("");
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
   const fileRef = useRef();
   const set = (k,v) => setR(p=>({...p,[k]:v}));
   const handlePhoto = (e) => {
@@ -388,9 +391,57 @@ function RecipeForm({ initial, onSave, onCancel, title }) {
   const updIng = (i,k,v) => { const a=[...r.ingredients]; a[i]={...a[i],[k]:v}; set("ingredients",a); };
   const save = () => { if (!r.name.trim()) return; onSave({...r,ingredients:r.ingredients.filter(i=>i.name.trim())}); };
 
+  const importFromUrl = async () => {
+    const url = importUrl.trim();
+    if (!url) return;
+    setImporting(true); setImportError("");
+    try {
+      const res = await fetch("/api/parse-recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error||"Failed to import recipe");
+      // Merge imported data into form, keeping existing values if import is empty
+      setR(p => ({
+        ...p,
+        name: data.name || p.name,
+        ingredients: data.ingredients?.length ? data.ingredients : p.ingredients,
+        method: data.method || p.method,
+        prepTime: data.prepTime || p.prepTime,
+        cookTime: data.cookTime || p.cookTime,
+        servings: data.servings || p.servings,
+        tags: data.tags?.length ? data.tags.slice(0,5) : p.tags,
+        // Store image URL as photo if no photo already set
+        photo: p.photo || data.imageUrl || "",
+      }));
+      setImportUrl("");
+    } catch(e) {
+      setImportError(e.message);
+    }
+    setImporting(false);
+  };
+
   return (
     <div style={{background:"#fff",borderRadius:14,padding:28,width:520,maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
       <h3 style={{margin:"0 0 16px",fontSize:18}}>{title}</h3>
+
+      {/* Import from URL */}
+      <div style={{background:"#f0f7ff",border:"1px solid #c0d8f0",borderRadius:10,padding:"14px",marginBottom:16}}>
+        <div style={{fontSize:12,fontWeight:"bold",color:"#2a5a8a",marginBottom:8}}>🔗 Import from a recipe website</div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={importUrl} onChange={e=>setImportUrl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&importFromUrl()}
+            placeholder="Paste a URL e.g. taste.com.au/recipes/..."
+            style={{flex:1,padding:"8px 11px",border:"1px solid #c0d8f0",borderRadius:8,fontSize:13,outline:"none"}}/>
+          <button onClick={importFromUrl} disabled={importing||!importUrl.trim()} style={{padding:"8px 16px",background:"#2a5a8a",color:"#fff",border:"none",borderRadius:8,fontSize:13,cursor:importing?"not-allowed":"pointer",opacity:importing?0.7:1,whiteSpace:"nowrap"}}>
+            {importing?"Importing…":"Import"}
+          </button>
+        </div>
+        {importError&&<div style={{fontSize:12,color:"#c0392b",marginTop:8}}>{importError}</div>}
+        <div style={{fontSize:11,color:"#6a8aaa",marginTop:6}}>Works with most major recipe sites. You can edit anything after importing.</div>
+      </div>
+
       {r.photo
         ?<div style={{position:"relative",marginBottom:12}}><img src={r.photo} alt="" style={{width:"100%",height:160,objectFit:"cover",borderRadius:10}}/><button onClick={()=>set("photo","")} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,0.55)",border:"none",color:"#fff",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>✕ Remove</button></div>
         :<button onClick={()=>fileRef.current.click()} style={{width:"100%",padding:"13px",border:"1.5px dashed #ccc",borderRadius:10,background:"#faf8f4",color:"#888",cursor:"pointer",fontSize:13,marginBottom:12}}>📷 Add a photo</button>}
