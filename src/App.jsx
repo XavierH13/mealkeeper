@@ -1,6 +1,81 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
+// ── Inject responsive CSS ─────────────────────────────────────────────────────
+const RESPONSIVE_CSS = `
+  * { box-sizing: border-box; }
+  .mk-main { max-width: 1040px; margin: 0 auto; padding: 28px 20px; }
+  .mk-header { background: #2c2416; color: #faf8f4; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  .mk-nav { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .mk-planner-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+  .mk-recipe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .mk-modal-inner { background: #fff; border-radius: 14px; max-height: 92vh; overflow-y: auto; }
+  .mk-modal-recipe { width: 540px; max-height: 90vh; overflow-y: auto; }
+  .mk-modal-picker { padding: 24px; width: 420px; max-height: 72vh; overflow-y: auto; }
+  .mk-recipe-form { background: #fff; border-radius: 14px; padding: 28px; width: 520px; max-height: 88vh; overflow-y: auto; }
+  .mk-community-modal { width: 520px; max-height: 88vh; overflow-y: auto; }
+  .mk-user-info { display: flex; align-items: center; gap: 10px; margin-left: 8px; padding-left: 12px; border-left: 1px solid rgba(255,255,255,0.15); }
+  .mk-planner-slot-btn { width: 100%; height: 52px; background: none; border: 1.5px dashed #d0c8b8; border-radius: 6px; color: #b0a898; font-size: 11px; cursor: pointer; }
+
+  @media (max-width: 700px) {
+    .mk-main { padding: 16px 12px; }
+    .mk-header { padding: 12px 14px; }
+    .mk-nav { gap: 3px; }
+    .mk-nav button { font-size: 11px; padding: 6px 9px; }
+    .mk-user-info { margin-left: 0; padding-left: 0; border-left: none; padding-top: 6px; width: 100%; justify-content: space-between; }
+
+    /* Planner: 2 days per row on mobile, scrollable */
+    .mk-planner-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .mk-planner-slot-btn { height: 40px; font-size: 10px; }
+
+    /* Recipe grid: 1 column on mobile */
+    .mk-recipe-grid { grid-template-columns: 1fr; }
+
+    /* Modals: full width on mobile */
+    .mk-modal-inner { border-radius: 12px; width: 100%; max-width: 100%; }
+    .mk-modal-recipe { width: 100%; }
+    .mk-modal-picker { width: 100%; padding: 18px; }
+    .mk-recipe-form { width: 100%; padding: 18px; }
+    .mk-community-modal { width: 100%; }
+
+    /* Shopping quick-add wraps nicely */
+    .mk-shop-add { flex-wrap: wrap; }
+  }
+
+  @media (min-width: 701px) and (max-width: 900px) {
+    /* Tablet portrait: 4 days per row */
+    .mk-planner-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .mk-recipe-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    .mk-modal-recipe { width: 92vw; }
+    .mk-recipe-form { width: 92vw; }
+    .mk-modal-picker { width: 80vw; }
+    .mk-community-modal { width: 92vw; }
+  }
+`;
+
+function useResponsiveStyles() {
+  useEffect(() => {
+    const id = "mk-responsive-styles";
+    if (!document.getElementById(id)) {
+      const el = document.createElement("style");
+      el.id = id;
+      el.textContent = RESPONSIVE_CSS;
+      document.head.appendChild(el);
+    }
+    return () => { const el = document.getElementById(id); if (el) el.remove(); };
+  }, []);
+}
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 700);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 700);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return isMobile;
+}
+
 // ── Supabase client ───────────────────────────────────────────────────────────
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -230,7 +305,7 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
         </div>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:16}}>
+      <div className="mk-recipe-grid">
         {filtered.map(row=>{
           const r = row.data;
           const alreadyMine = myRecipeIds.includes(row.id) || addedIds[row.id];
@@ -270,7 +345,7 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
       {/* View community recipe modal */}
       {viewing&&(
         <Modal onClose={()=>setViewing(null)}>
-          <div style={{width:520,maxHeight:"88vh",overflowY:"auto"}}>
+          <div className="mk-community-modal">
             {viewing.data.photo
               ?<img src={viewing.data.photo} alt={viewing.data.name} style={{width:"100%",height:200,objectFit:"cover",borderRadius:"14px 14px 0 0"}}/>
               :<div style={{background:"#2c2416",padding:"28px",borderRadius:"14px 14px 0 0",textAlign:"center",fontSize:56}}>{viewing.data.emoji}</div>}
@@ -424,7 +499,7 @@ function RecipeForm({ initial, onSave, onCancel, title }) {
   };
 
   return (
-    <div style={{background:"#fff",borderRadius:14,padding:28,width:520,maxHeight:"88vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+    <div className="mk-recipe-form" onClick={e=>e.stopPropagation()}>
       <h3 style={{margin:"0 0 16px",fontSize:18}}>{title}</h3>
 
       {/* Import from URL */}
@@ -513,7 +588,7 @@ function ScaleControl({ baseServings, onScale }) {
 function Modal({ children, onClose }) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:16,overflowY:"auto"}} onClick={onClose}>
-      <div style={{background:"#fff",borderRadius:14,maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>{children}</div>
+      <div className="mk-modal-inner" onClick={e=>e.stopPropagation()}>{children}</div>
     </div>
   );
 }
@@ -534,6 +609,8 @@ const btnDark = { padding:"11px 24px",background:"#2c2416",color:"#faf8f4",borde
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
+  useResponsiveStyles();
+  const isMobile = useIsMobile();
   const [session, setSession]   = useState(undefined);
   const [tab, setTab]           = useState("planner");
   const [recipes, setRecipes]   = useState([]);
@@ -698,16 +775,16 @@ export default function App() {
       )}
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header style={{background:"#2c2416",color:"#faf8f4",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+      <header className="mk-header">
         <div>
           <div style={{fontSize:20,fontWeight:"bold",letterSpacing:1}}>🥄 MealKeeper</div>
           <div style={{fontSize:11,opacity:0.5,marginTop:1}}>Plan. Shop. Cook.</div>
         </div>
-        <nav style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+        <nav className="mk-nav">
           {[["planner","📅 Planner"],["recipes","📖 Recipes"],["shopping",`🛒 Shopping${shoppingList.length+manualItems.length?` (${shoppingList.length+manualItems.length})`:""}`],["community","🌍 Community"]].map(([key,label])=>(
             <button key={key} onClick={()=>setTab(key)} style={{background:tab===key?"#e8a020":"transparent",color:tab===key?"#2c2416":"#faf8f4",border:"1px solid "+(tab===key?"#e8a020":"rgba(255,255,255,0.2)"),borderRadius:6,padding:"7px 14px",cursor:"pointer",fontSize:13,fontWeight:tab===key?"bold":"normal"}}>{label}</button>
           ))}
-          <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:8,paddingLeft:12,borderLeft:"1px solid rgba(255,255,255,0.15)"}}>
+          <div className="mk-user-info">
             <span style={{fontSize:12,opacity:0.7}}>👤 {userName}</span>
             {saving&&<span style={{fontSize:11,opacity:0.5}}>Saving…</span>}
             <button onClick={signOut} style={{background:"none",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,color:"#faf8f4",padding:"5px 12px",cursor:"pointer",fontSize:12}}>Log out</button>
@@ -715,13 +792,13 @@ export default function App() {
         </nav>
       </header>
 
-      <main style={{maxWidth:1040,margin:"0 auto",padding:"28px 20px"}}>
+      <main className="mk-main">
 
         {/* ── PLANNER ──────────────────────────────────────────────────────── */}
         {tab==="planner"&&(
           <div>
             <h2 style={{margin:"0 0 20px",fontSize:20}}>Weekly Meal Plan</h2>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:10}}>
+            <div className="mk-planner-grid">
               {DAYS.map(day=>(
                 <div key={day} style={{background:"#fff",borderRadius:10,border:"1px solid #e8e0d0",overflow:"hidden"}}>
                   <div style={{background:"#2c2416",color:"#faf8f4",padding:"8px 10px",fontSize:12,fontWeight:"bold",textAlign:"center"}}>{day.slice(0,3).toUpperCase()}</div>
@@ -738,7 +815,7 @@ export default function App() {
                             <button onClick={e=>{e.stopPropagation();removeMeal(day,slot);}} style={{marginTop:4,width:"100%",background:"none",border:"none",color:"#c0392b",fontSize:10,cursor:"pointer"}}>✕ remove</button>
                           </div>
                         ):(
-                          <button onClick={()=>setPickingFor({day,slot})} style={{width:"100%",height:52,background:"none",border:"1.5px dashed #d0c8b8",borderRadius:6,color:"#b0a898",fontSize:11,cursor:"pointer"}}>+ Add</button>
+                          <button onClick={()=>setPickingFor({day,slot})} className="mk-planner-slot-btn">+ Add</button>
                         )}
                       </div>
                     );
@@ -764,7 +841,7 @@ export default function App() {
               </div>
             )}
             {filtered.length===0&&<p style={{color:"#999",textAlign:"center",padding:"40px 0"}}>No recipes found.</p>}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:16}}>
+            <div className="mk-recipe-grid">
               {filtered.map(recipe=>(
                 <div key={recipe.id} style={{background:"#fff",borderRadius:12,border:"1px solid #e8e0d0",overflow:"hidden",display:"flex",flexDirection:"column"}}>
                   {recipe.photo?<img src={recipe.photo} alt={recipe.name} style={{width:"100%",height:150,objectFit:"cover"}}/>:<div style={{background:"#fef3e2",padding:"20px",textAlign:"center",fontSize:44}}>{recipe.emoji}</div>}
@@ -839,7 +916,7 @@ export default function App() {
       {/* ── RECIPE PICKER ──────────────────────────────────────────────────── */}
       {pickingFor&&(
         <Modal onClose={()=>{setPickingFor(null);setRecipeSearch("");}}>
-          <div style={{padding:24,width:420,maxHeight:"72vh",overflowY:"auto"}}>
+          <div className="mk-modal-picker">
             <h3 style={{margin:"0 0 4px"}}>Choose a Recipe</h3>
             <p style={{margin:"0 0 12px",color:"#888",fontSize:13}}>{pickingFor.day} — {pickingFor.slot}</p>
             <input placeholder="🔍  Search…" value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)} style={{width:"100%",padding:"8px 12px",border:"1px solid #ddd",borderRadius:8,fontSize:13,boxSizing:"border-box",marginBottom:12}}/>
@@ -857,7 +934,7 @@ export default function App() {
       {/* ── VIEW RECIPE ────────────────────────────────────────────────────── */}
       {viewingRecipe&&!editingRecipe&&(
         <Modal onClose={()=>setViewingRecipe(null)}>
-          <div style={{width:540,maxHeight:"90vh",overflowY:"auto"}}>
+          <div className="mk-modal-recipe">
             {viewingRecipe.photo?<img src={viewingRecipe.photo} alt={viewingRecipe.name} style={{width:"100%",height:200,objectFit:"cover",borderRadius:"14px 14px 0 0"}}/>:<div style={{background:"#2c2416",padding:"28px",borderRadius:"14px 14px 0 0",textAlign:"center",fontSize:56}}>{viewingRecipe.emoji}</div>}
             <div style={{padding:"20px 28px"}}>
               <div style={{fontSize:22,fontWeight:"bold"}}>{viewingRecipe.name}</div>
