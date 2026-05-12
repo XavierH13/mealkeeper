@@ -243,25 +243,54 @@ function SharedRecipePage({ shareId, onBack }) {
 }
 
 // ── Community Browse Tab ──────────────────────────────────────────────────────
+const PAGE_SIZE = 12;
 function CommunityTab({ myRecipeIds, onAddToMine }) {
-  const [recipes, setRecipes]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState("");
+  const [recipes, setRecipes]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore]     = useState(true);
+  const [page, setPage]           = useState(0);
+  const [search, setSearch]       = useState("");
   const [activeTag, setActiveTag] = useState(null);
-  const [viewing, setViewing]   = useState(null);
-  const [addedIds, setAddedIds] = useState({});
+  const [sort, setSort]           = useState("recent"); // "recent" | "saved" | "random"
+  const [viewing, setViewing]     = useState(null);
+  const [addedIds, setAddedIds]   = useState({});
+  const [randomSeed] = useState(() => Math.random());
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("recipes")
-        .select("id, data, author_name, share_id")
-        .eq("is_public", true)
-        .order("created_at", { ascending:false });
-      setRecipes(data||[]);
-      setLoading(false);
-    })();
-  }, []);
+  const fetchRecipes = async (pageNum, sortMode, reset=false) => {
+    if (pageNum === 0) setLoading(true); else setLoadingMore(true);
+    let query = supabase
+      .from("recipes")
+      .select("id, data, author_name, share_id, save_count, created_at")
+      .eq("is_public", true)
+      .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
+
+    if (sortMode === "saved") query = query.order("save_count", { ascending:false }).order("created_at", { ascending:false });
+    else if (sortMode === "random") query = query.order("id"); // we shuffle client-side
+    else query = query.order("created_at", { ascending:false });
+
+    const { data } = await query;
+    const rows = data || [];
+
+    let finalRows = rows;
+    if (sortMode === "random" && pageNum === 0) {
+      // Fisher-Yates shuffle seeded by randomSeed
+      finalRows = [...rows].sort(() => randomSeed - 0.5);
+    }
+
+    if (reset) setRecipes(finalRows);
+    else setRecipes(p => [...p, ...finalRows]);
+    setHasMore(rows.length === PAGE_SIZE);
+    if (pageNum === 0) setLoading(false); else setLoadingMore(false);
+  };
+
+  useEffect(() => { setPage(0); setRecipes([]); fetchRecipes(0, sort, true); }, [sort]);
+
+  const loadMore = () => {
+    const next = page + 1;
+    setPage(next);
+    fetchRecipes(next, sort);
+  };
 
   const allTags = [...new Set(recipes.flatMap(r=>(r.data.tags||[])))];
   const filtered = recipes.filter(r => {
@@ -272,6 +301,8 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
 
   const handleAdd = async (row) => {
     await onAddToMine(row.data);
+    // Increment save_count in Supabase
+    await supabase.rpc("increment_save_count", { recipe_id: row.id });
     setAddedIds(p=>({...p,[row.id]:true}));
   };
 
@@ -284,8 +315,19 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
       <div style={{marginBottom:20}}>
         <h2 style={{margin:"0 0 4px",fontSize:20}}>Community Recipes</h2>
         <p style={{margin:"0 0 16px",fontSize:13,color:"#888"}}>Recipes shared publicly by MealKeeper users. Add any to your own collection.</p>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search community recipes…"
-          style={{width:"100%",padding:"10px 14px",border:"1px solid #ddd",borderRadius:10,fontSize:14,boxSizing:"border-box",marginBottom:12}}/>
+
+        {/* Search + Sort row */}
+        <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search community recipes…"
+            style={{flex:"1 1 200px",padding:"10px 14px",border:"1px solid #ddd",borderRadius:10,fontSize:14,boxSizing:"border-box"}}/>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            {[["recent","🕐 Recent"],["saved","⭐ Most Saved"],["random","🎲 Random"]].map(([key,label])=>(
+              <button key={key} onClick={()=>setSort(key)} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+(sort===key?"#2c2416":"#ddd"),background:sort===key?"#2c2416":"#fff",color:sort===key?"#faf8f4":"#666",fontSize:12,cursor:"pointer",fontWeight:sort===key?"bold":"normal",whiteSpace:"nowrap"}}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tag filters */}
         {allTags.length>0&&(
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
             <span onClick={()=>setActiveTag(null)} style={{background:!activeTag?"#2c2416":"#f0ead8",color:!activeTag?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>All</span>
@@ -328,6 +370,7 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
                   </div>
                 )}
                 <div style={{marginTop:"auto",display:"flex",flexDirection:"column",gap:6}}>
+                  {row.save_count>0&&<div style={{fontSize:11,color:"#aaa",textAlign:"center"}}>⭐ {row.save_count} {row.save_count===1?"save":"saves"}</div>}
                   <button onClick={()=>setViewing(row)} style={{width:"100%",background:"#fef3e2",border:"1px solid #e8c870",borderRadius:6,padding:"7px",color:"#2c2416",fontSize:12,cursor:"pointer",fontWeight:"bold"}}>📋 View Recipe</button>
                   <div style={{display:"flex",gap:6}}>
                     <button onClick={()=>handleAdd(row)} disabled={alreadyMine} style={{flex:1,background:alreadyMine?"#f0fff4":"#e8a020",border:alreadyMine?"1px solid #9dc":"none",borderRadius:6,padding:"6px",color:alreadyMine?"#27ae60":"#2c2416",fontSize:12,cursor:alreadyMine?"default":"pointer",fontWeight:"bold"}}>
@@ -341,6 +384,15 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
           );
         })}
       </div>
+
+      {/* Load more */}
+      {!loading&&hasMore&&filtered.length>0&&(
+        <div style={{textAlign:"center",marginTop:24}}>
+          <button onClick={loadMore} disabled={loadingMore} style={{padding:"11px 32px",background:"#fff",border:"1px solid #ddd",borderRadius:10,fontSize:14,cursor:loadingMore?"not-allowed":"pointer",color:"#666",opacity:loadingMore?0.6:1}}>
+            {loadingMore?"Loading…":"Load more recipes"}
+          </button>
+        </div>
+      )}
 
       {/* View community recipe modal */}
       {viewing&&(
@@ -478,7 +530,6 @@ function RecipeForm({ initial, onSave, onCancel, title }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error||"Failed to import recipe");
-      // Merge imported data into form, keeping existing values if import is empty
       setR(p => ({
         ...p,
         name: data.name || p.name,
@@ -488,7 +539,6 @@ function RecipeForm({ initial, onSave, onCancel, title }) {
         cookTime: data.cookTime || p.cookTime,
         servings: data.servings || p.servings,
         tags: data.tags?.length ? data.tags.slice(0,5) : p.tags,
-        // Store image URL as photo if no photo already set
         photo: p.photo || data.imageUrl || "",
       }));
       setImportUrl("");
@@ -496,6 +546,43 @@ function RecipeForm({ initial, onSave, onCancel, title }) {
       setImportError(e.message);
     }
     setImporting(false);
+  };
+
+  const photoImportRef = useRef();
+  const importFromPhoto = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    setImporting(true); setImportError("");
+    try {
+      // Convert to base64
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/parse-recipe-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mimeType: file.type }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error||"Failed to read photo");
+      setR(p => ({
+        ...p,
+        name: data.name || p.name,
+        ingredients: data.ingredients?.length ? data.ingredients : p.ingredients,
+        method: data.method || p.method,
+        prepTime: data.prepTime || p.prepTime,
+        cookTime: data.cookTime || p.cookTime,
+        servings: data.servings || p.servings,
+        tags: data.tags?.length ? data.tags.slice(0,5) : p.tags,
+      }));
+    } catch(e) {
+      setImportError(e.message);
+    }
+    setImporting(false);
+    // Reset file input
+    if (photoImportRef.current) photoImportRef.current.value = "";
   };
 
   return (
@@ -689,11 +776,145 @@ export default function App() {
   const saveMealPlan   = async (p)=>{if (!session)return; await supabase.from("meal_plans").upsert({user_id:session.user.id,data:p});};
   const saveShopping   = async (c,m)=>{if (!session)return; await supabase.from("shopping_items").upsert({user_id:session.user.id,data:{checkedItems:c,manualItems:m}});};
 
-  // ── Shopping ──────────────────────────────────────────────────────────────
-  const parseAmount = (str)=>{ if (!str)return null; const m=str.trim().match(/^([\d.,]+)\s*([a-zA-Z%]*)$/); if (!m)return null; const v=parseFloat(m[1].replace(",",".")); return isNaN(v)?null:{value:v,unit:m[2].toLowerCase()}; };
-  const combineAmounts = (amounts)=>{ if (amounts.length===1)return amounts[0]; const parsed=amounts.map(parseAmount); const ok=parsed.every((p,_,a)=>p&&p.unit===a[0]?.unit); if (ok&&parsed[0]){const total=parsed.reduce((s,p)=>s+p.value,0); const d=Number.isInteger(total)?total:parseFloat(total.toFixed(2)); return `${d}${parsed[0].unit||""}`;} return amounts.join(" + "); };
+  // ── Fuzzy ingredient matching + shopping helpers ─────────────────────────
+  const INGREDIENT_ALIASES = [
+    ["Garlic",["garlic"]],
+    ["Onion",["onion","onions","shallot","shallots","spring onion","green onion","scallion","brown onion","red onion","white onion"]],
+    ["Olive Oil",["olive oil","extra virgin olive oil","evoo"]],
+    ["Vegetable Oil",["vegetable oil","canola oil","sunflower oil","neutral oil","cooking oil"]],
+    ["Butter",["butter","unsalted butter","salted butter"]],
+    ["Chicken Breast",["chicken breast","chicken breasts","chicken fillet","chicken fillets","breast fillet"]],
+    ["Chicken Thighs",["chicken thigh","chicken thighs","boneless chicken thigh","boneless thigh"]],
+    ["Chicken",["chicken","whole chicken"]],
+    ["Ground Beef",["ground beef","beef mince","minced beef","mince","beef mince","ground meat"]],
+    ["Beef",["beef","steak","sirloin","rump","chuck","beef strips"]],
+    ["Pork",["pork","pork loin","pork chop","pork belly","pork strips"]],
+    ["Bacon",["bacon","streaky bacon","back bacon","pancetta","bacon rashers"]],
+    ["Eggs",["egg","eggs","large egg","free range egg","medium egg"]],
+    ["Milk",["milk","whole milk","full fat milk","skim milk","semi skimmed","reduced fat milk"]],
+    ["Cream",["cream","heavy cream","double cream","whipping cream","thickened cream","cooking cream"]],
+    ["Sour Cream",["sour cream","creme fraiche"]],
+    ["Parmesan",["parmesan","parmigiano","parmesan cheese","parmigiano reggiano","grated parmesan"]],
+    ["Cheddar",["cheddar","cheddar cheese","grated cheddar"]],
+    ["Mozzarella",["mozzarella","mozzarella cheese","fresh mozzarella","grated mozzarella"]],
+    ["Tomatoes",["tomato","tomatoes","cherry tomato","cherry tomatoes","roma tomato","vine tomato","fresh tomato"]],
+    ["Canned Tomatoes",["canned tomato","canned tomatoes","tinned tomato","tinned tomatoes","crushed tomato","diced tomato","chopped tomato","passata"]],
+    ["Tomato Paste",["tomato paste","tomato puree","tomato concentrate","tomato sauce"]],
+    ["Carrot",["carrot","carrots","baby carrot"]],
+    ["Celery",["celery","celery stalk","celery stalks","celery stick","celery ribs"]],
+    ["Capsicum",["capsicum","bell pepper","red capsicum","green capsicum","yellow capsicum","red pepper","green pepper","yellow pepper"]],
+    ["Zucchini",["zucchini","courgette","baby zucchini"]],
+    ["Mushrooms",["mushroom","mushrooms","button mushroom","button mushrooms","cremini","portobello","shiitake"]],
+    ["Spinach",["spinach","baby spinach","english spinach"]],
+    ["Broccoli",["broccoli","broccolini","broccoli florets"]],
+    ["Potato",["potato","potatoes","baby potato","new potato","chat potato","washed potato"]],
+    ["Sweet Potato",["sweet potato","kumara","orange sweet potato"]],
+    ["Cucumber",["cucumber","lebanese cucumber","telegraph cucumber","continental cucumber"]],
+    ["Avocado",["avocado","ripe avocado"]],
+    ["Lemon",["lemon","lemons","lemon juice","fresh lemon","lemon zest"]],
+    ["Lime",["lime","limes","lime juice","fresh lime","lime zest"]],
+    ["Ginger",["ginger","fresh ginger","ground ginger","ginger paste","minced ginger"]],
+    ["Chilli",["chilli","chili","red chilli","green chilli","chilli flakes","red pepper flakes","cayenne","fresh chilli","long red chilli"]],
+    ["Coriander",["coriander","cilantro","fresh coriander","coriander leaves","ground coriander","coriander seeds"]],
+    ["Parsley",["parsley","flat leaf parsley","curly parsley","fresh parsley"]],
+    ["Basil",["basil","fresh basil","thai basil"]],
+    ["Thyme",["thyme","fresh thyme","dried thyme"]],
+    ["Rosemary",["rosemary","fresh rosemary","dried rosemary"]],
+    ["Oregano",["oregano","dried oregano","fresh oregano"]],
+    ["Cumin",["cumin","ground cumin","cumin seeds","cumin powder"]],
+    ["Paprika",["paprika","smoked paprika","sweet paprika","hot paprika"]],
+    ["Turmeric",["turmeric","ground turmeric","turmeric powder"]],
+    ["Cinnamon",["cinnamon","ground cinnamon","cinnamon stick","cinnamon powder"]],
+    ["Soy Sauce",["soy sauce","light soy sauce","dark soy sauce","tamari","low sodium soy sauce"]],
+    ["Fish Sauce",["fish sauce","nam pla"]],
+    ["Sesame Oil",["sesame oil","toasted sesame oil","dark sesame oil"]],
+    ["Balsamic Vinegar",["balsamic vinegar","balsamic","balsamic glaze"]],
+    ["White Wine Vinegar",["white wine vinegar","white vinegar","rice wine vinegar","rice vinegar"]],
+    ["Chicken Stock",["chicken stock","chicken broth","chicken stock cube","chicken bouillon","liquid chicken stock"]],
+    ["Beef Stock",["beef stock","beef broth","beef stock cube","beef bouillon"]],
+    ["Vegetable Stock",["vegetable stock","vegetable broth","veggie stock","vegetable bouillon"]],
+    ["Coconut Milk",["coconut milk","coconut cream","light coconut milk"]],
+    ["Pasta",["pasta","spaghetti","penne","fettuccine","rigatoni","linguine","tagliatelle","fusilli","farfalle","macaroni","lasagne sheets","lasagna"]],
+    ["Rice",["rice","basmati rice","jasmine rice","long grain rice","arborio rice","white rice","brown rice","steamed rice"]],
+    ["Flour",["flour","plain flour","all purpose flour","self raising flour","all-purpose flour"]],
+    ["Breadcrumbs",["breadcrumb","breadcrumbs","panko","panko breadcrumbs","dried breadcrumbs"]],
+    ["Sugar",["sugar","white sugar","caster sugar","granulated sugar","superfine sugar"]],
+    ["Brown Sugar",["brown sugar","soft brown sugar","dark brown sugar","light brown sugar"]],
+    ["Honey",["honey","raw honey","clear honey"]],
+    ["Salt",["salt","sea salt","kosher salt","flaky salt","table salt","fine salt"]],
+    ["Black Pepper",["pepper","black pepper","ground black pepper","cracked pepper","freshly ground pepper"]],
+    ["Salmon",["salmon","salmon fillet","salmon fillets","fresh salmon","atlantic salmon"]],
+    ["Prawns",["prawns","shrimp","king prawns","tiger prawns","banana prawns","cooked prawns","green prawns"]],
+    ["Chickpeas",["chickpea","chickpeas","garbanzo","canned chickpeas","tinned chickpeas"]],
+    ["Lentils",["lentil","lentils","red lentil","red lentils","green lentil","puy lentil"]],
+    ["Mixed Herbs",["mixed herbs","dried mixed herbs","italian herbs","italian seasoning"]],
+    ["Worcestershire Sauce",["worcestershire sauce","worcester sauce"]],
+    ["Dijon Mustard",["dijon mustard","dijon","wholegrain mustard","mustard"]],
+    ["Maple Syrup",["maple syrup","pure maple syrup"]],
+    ["Sesame Seeds",["sesame seeds","toasted sesame seeds","white sesame seeds"]],
+  ];
 
-  const shoppingList = (()=>{ const map={}; Object.values(mealPlan).forEach(slots=>{ Object.values(slots).forEach(rid=>{ const recipe=recipes.find(r=>r.id===rid); if (!recipe)return; recipe.ingredients.forEach(({name,amount})=>{ const key=name.toLowerCase().trim(); if (!map[key])map[key]={name,amounts:[],recipeNames:[],category:guessCategory(name)}; map[key].amounts.push(amount); if (!map[key].recipeNames.includes(recipe.name))map[key].recipeNames.push(recipe.name); }); }); }); return Object.values(map).map(item=>({...item,combinedAmount:combineAmounts(item.amounts)})); })();
+  const normaliseIngredient = (rawName) => {
+    const lower = rawName.toLowerCase().trim()
+      .replace(/\(.*?\)/g,"")
+      .replace(/,.*$/,"")
+      .replace(/\d+\s*(cloves?|heads?|stalks?|sprigs?|slices?|pieces?|rashers?|cans?|tins?)\s*/gi,"")
+      .replace(/\b(finely|roughly|freshly|thinly|coarsely|lightly|optional|to taste|to serve|about|approx|approximately|around)\b/gi,"")
+      .replace(/\b(minced|crushed|chopped|diced|sliced|grated|peeled|dried|ground|roasted|toasted|halved|quartered|shredded|torn|picked|washed|trimmed|zested|juiced|softened|melted|beaten|whisked|sifted)\b/gi,"")
+      .replace(/\s+/g," ").trim();
+    for (const [canonical, aliases] of INGREDIENT_ALIASES) {
+      for (const alias of aliases) {
+        if (lower === alias || lower.startsWith(alias+" ") || lower.endsWith(" "+alias) || lower.includes(" "+alias+" ") || lower === alias) {
+          return { canonical, category: guessCategory(canonical) };
+        }
+      }
+    }
+    const titleCase = lower.split(" ").filter(Boolean).map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(" ");
+    return { canonical: titleCase||rawName, category: guessCategory(rawName) };
+  };
+
+  const parseAmount = (str)=>{
+    if (!str) return null;
+    const fracs = {"¼":"0.25","½":"0.5","¾":"0.75","⅓":"0.333","⅔":"0.667","⅛":"0.125"};
+    let s = str.trim();
+    for (const [f,v] of Object.entries(fracs)) s=s.replace(f,v);
+    const m = s.match(/^([\d.,\/]+)\s*([a-zA-Z%]*)$/);
+    if (!m) return null;
+    let num;
+    if (m[1].includes("/")) { const [a,b]=m[1].split("/"); num=parseFloat(a)/parseFloat(b); }
+    else num = parseFloat(m[1].replace(",","."));
+    return isNaN(num)?null:{value:num,unit:m[2].toLowerCase()};
+  };
+
+  const combineAmounts = (amounts)=>{
+    if (amounts.length===1) return amounts[0];
+    const parsed = amounts.map(parseAmount);
+    const ok = parsed.every((p,_,a)=>p&&p.unit===a[0]?.unit);
+    if (ok&&parsed[0]) {
+      const total=parsed.reduce((s,p)=>s+p.value,0);
+      const d=Number.isInteger(total)?total:parseFloat(total.toFixed(2));
+      return `${d}${parsed[0].unit||""}`;
+    }
+    return amounts.join(" + ");
+  };
+
+  const shoppingList = (()=>{
+    const map={};
+    Object.values(mealPlan).forEach(slots=>{
+      Object.values(slots).forEach(rid=>{
+        const recipe=recipes.find(r=>r.id===rid); if (!recipe) return;
+        recipe.ingredients.forEach(({name,amount})=>{
+          const {canonical,category}=normaliseIngredient(name);
+          const key=canonical.toLowerCase();
+          if (!map[key]) map[key]={name:canonical,amounts:[],recipeNames:[],category};
+          map[key].amounts.push(amount);
+          if (!map[key].recipeNames.includes(recipe.name)) map[key].recipeNames.push(recipe.name);
+        });
+      });
+    });
+    return Object.values(map).map(item=>({...item,combinedAmount:combineAmounts(item.amounts)}));
+  })();
+
 
   const byCategory=(list,getKey)=>SHOP_CATEGORIES.reduce((acc,cat)=>{const items=list.filter(i=>(getKey(i)||"Other")===cat); if (items.length)acc[cat]=items; return acc;},{});
   const shopByCat  = byCategory(shoppingList,i=>i.category);
