@@ -589,19 +589,28 @@ function RecipeForm({ initial, onSave, onCancel, title }) {
     <div className="mk-recipe-form" onClick={e=>e.stopPropagation()}>
       <h3 style={{margin:"0 0 16px",fontSize:18}}>{title}</h3>
 
-      {/* Import from URL */}
+      {/* Import from URL or Photo */}
       <div style={{background:"#f0f7ff",border:"1px solid #c0d8f0",borderRadius:10,padding:"14px",marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:"bold",color:"#2a5a8a",marginBottom:8}}>🔗 Import from a recipe website</div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{fontSize:12,fontWeight:"bold",color:"#2a5a8a",marginBottom:8}}>Import a recipe</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
           <input value={importUrl} onChange={e=>setImportUrl(e.target.value)} onKeyDown={e=>e.key==="Enter"&&importFromUrl()}
-            placeholder="Paste a URL e.g. taste.com.au/recipes/..."
+            placeholder="🔗 Paste a URL e.g. taste.com.au/recipes/..."
             style={{flex:1,padding:"8px 11px",border:"1px solid #c0d8f0",borderRadius:8,fontSize:13,outline:"none"}}/>
-          <button onClick={importFromUrl} disabled={importing||!importUrl.trim()} style={{padding:"8px 16px",background:"#2a5a8a",color:"#fff",border:"none",borderRadius:8,fontSize:13,cursor:importing?"not-allowed":"pointer",opacity:importing?0.7:1,whiteSpace:"nowrap"}}>
+          <button onClick={importFromUrl} disabled={importing||!importUrl.trim()} style={{padding:"8px 14px",background:"#2a5a8a",color:"#fff",border:"none",borderRadius:8,fontSize:13,cursor:importing?"not-allowed":"pointer",opacity:importing?0.7:1,whiteSpace:"nowrap"}}>
             {importing?"Importing…":"Import"}
           </button>
         </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{flex:1,height:1,background:"#c0d8f0"}}/>
+          <span style={{fontSize:11,color:"#6a8aaa"}}>or</span>
+          <div style={{flex:1,height:1,background:"#c0d8f0"}}/>
+        </div>
+        <button onClick={()=>photoImportRef.current.click()} disabled={importing} style={{width:"100%",marginTop:8,padding:"9px",background:"#fff",border:"1px solid #c0d8f0",borderRadius:8,fontSize:13,color:"#2a5a8a",cursor:importing?"not-allowed":"pointer",fontWeight:"bold",opacity:importing?0.7:1}}>
+          {importing?"Reading photo…":"📷 Snap or upload a photo of a recipe"}
+        </button>
+        <input ref={photoImportRef} type="file" accept="image/*" capture="environment" onChange={importFromPhoto} style={{display:"none"}}/>
         {importError&&<div style={{fontSize:12,color:"#c0392b",marginTop:8}}>{importError}</div>}
-        <div style={{fontSize:11,color:"#6a8aaa",marginTop:6}}>Works with most major recipe sites. You can edit anything after importing.</div>
+        <div style={{fontSize:11,color:"#6a8aaa",marginTop:6}}>Import from any recipe website, or take a photo of a recipe book page.</div>
       </div>
 
       {r.photo
