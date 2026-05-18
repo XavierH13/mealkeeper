@@ -767,17 +767,24 @@ export default function App() {
     setSaving(true);
     const uid=session.user.id;
     const authorName = session.user.user_metadata?.full_name||session.user.email;
-    await supabase.from("recipes").delete().eq("user_id",uid);
-    if (newRecipes.length>0) {
-      const rows = newRecipes.map(r=>({
-        id: r.id,
-        user_id: uid,
-        data: r,
-        is_public: r.isPublic||false,
-        share_id: r._shareId||generateId(),
-        author_name: authorName,
-      }));
-      await supabase.from("recipes").insert(rows);
+    try {
+      if (newRecipes.length > 0) {
+        // Upsert all current recipes (safe - never deletes)
+        const rows = newRecipes.map(r=>({
+          id: r.id,
+          user_id: uid,
+          data: r,
+          is_public: r.isPublic||false,
+          share_id: r._shareId||generateId(),
+          author_name: authorName,
+        }));
+        const { error } = await supabase.from("recipes").upsert(rows, { onConflict: "id" });
+        if (error) throw error;
+      }
+    } catch(e) {
+      console.error("Failed to save recipes:", e);
+      setSaving(false);
+      return;
     }
     setSaving(false);
   };
@@ -944,9 +951,11 @@ export default function App() {
     setEditingRecipe(null);
   };
 
-  const deleteRecipe = (id) => {
+  const deleteRecipe = async (id) => {
     const updated=recipes.filter(r=>r.id!==id);
-    setRecipes(updated); saveRecipes(updated);
+    setRecipes(updated);
+    // Delete just this one recipe directly - much safer than delete-all-reinsert
+    await supabase.from("recipes").delete().eq("id", id).eq("user_id", session.user.id);
     const newPlan={...mealPlan};
     Object.keys(newPlan).forEach(d=>Object.keys(newPlan[d]||{}).forEach(s=>{if(newPlan[d][s]===id)delete newPlan[d][s];}));
     setMealPlan(newPlan); saveMealPlan(newPlan);
