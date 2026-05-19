@@ -795,15 +795,24 @@ export default function App() {
   // ── Fuzzy ingredient matching + shopping helpers ─────────────────────────
   const INGREDIENT_ALIASES = [
     ["Garlic",["garlic"]],
-    ["Onion",["onion","onions","shallot","shallots","spring onion","green onion","scallion","brown onion","red onion","white onion"]],
+    ["Spring Onions",["spring onion","spring onions","green onion","green onions","scallion","scallions"]],
+    ["Shallots",["shallot","shallots","french shallot","golden shallot"]],
+    ["Onion",["onion","onions","brown onion","brown onions","red onion","red onions","white onion","white onions"]],
     ["Olive Oil",["olive oil","extra virgin olive oil","evoo"]],
     ["Vegetable Oil",["vegetable oil","canola oil","sunflower oil","neutral oil","cooking oil"]],
     ["Butter",["butter","unsalted butter","salted butter"]],
     ["Chicken Breast",["chicken breast","chicken breasts","chicken fillet","chicken fillets","breast fillet"]],
     ["Chicken Thighs",["chicken thigh","chicken thighs","boneless chicken thigh","boneless thigh"]],
     ["Chicken",["chicken","whole chicken"]],
-    ["Ground Beef",["ground beef","beef mince","minced beef","mince","beef mince","ground meat"]],
-    ["Beef",["beef","steak","sirloin","rump","chuck","beef strips"]],
+    ["Ground Beef",["ground beef","beef mince","minced beef","ground beef mince"]],
+    ["Turkey Mince",["turkey mince","minced turkey","ground turkey"]],
+    ["Pork Mince",["pork mince","minced pork","ground pork"]],
+    ["Chicken Mince",["chicken mince","minced chicken","ground chicken"]],
+    ["Lamb Mince",["lamb mince","minced lamb","ground lamb"]],
+    ["Beef Sausages",["beef sausage","beef sausages","beef snag","beef snags"]],
+    ["Pork Sausages",["pork sausage","pork sausages","pork snag","pork snags"]],
+    ["Sausages",["sausage","sausages","snag","snags","thick sausage","thin sausage"]],
+    ["Beef",["beef","steak","sirloin","rump","chuck","beef strips","beef fillet"]],
     ["Pork",["pork","pork loin","pork chop","pork belly","pork strips"]],
     ["Bacon",["bacon","streaky bacon","back bacon","pancetta","bacon rashers"]],
     ["Eggs",["egg","eggs","large egg","free range egg","medium egg"]],
@@ -876,11 +885,23 @@ export default function App() {
       .replace(/,.*$/,"")
       .replace(/\d+\s*(cloves?|heads?|stalks?|sprigs?|slices?|pieces?|rashers?|cans?|tins?)\s*/gi,"")
       .replace(/\b(finely|roughly|freshly|thinly|coarsely|lightly|optional|to taste|to serve|about|approx|approximately|around)\b/gi,"")
-      .replace(/\b(minced|crushed|chopped|diced|sliced|grated|peeled|dried|ground|roasted|toasted|halved|quartered|shredded|torn|picked|washed|trimmed|zested|juiced|softened|melted|beaten|whisked|sifted)\b/gi,"")
+      .replace(/\b(crushed|chopped|diced|sliced|grated|peeled|dried|roasted|toasted|halved|quartered|shredded|torn|picked|washed|trimmed|zested|juiced|softened|melted|beaten|whisked|sifted)\b/gi,"")  // NOTE: "minced" intentionally excluded so "turkey mince" stays intact
       .replace(/\s+/g," ").trim();
-    for (const [canonical, aliases] of INGREDIENT_ALIASES) {
+
+    // Sort aliases longest-first so more specific matches win over shorter ones
+    // e.g. "spring onion" matches before "onion", "chicken breast" before "chicken"
+    const sorted = [...INGREDIENT_ALIASES].sort((a,b) => {
+      const maxA = Math.max(...a[1].map(x=>x.length));
+      const maxB = Math.max(...b[1].map(x=>x.length));
+      return maxB - maxA;
+    });
+
+    for (const [canonical, aliases] of sorted) {
       for (const alias of aliases) {
-        if (lower === alias || lower.startsWith(alias+" ") || lower.endsWith(" "+alias) || lower.includes(" "+alias+" ") || lower === alias) {
+        // Only match if the alias is the whole string, or surrounded by word boundaries
+        const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+        const regex = new RegExp(`(^|\\s)${escaped}(\\s|$)`);
+        if (regex.test(lower)) {
           return { canonical, category: guessCategory(canonical) };
         }
       }
