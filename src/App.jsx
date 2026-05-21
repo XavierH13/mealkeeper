@@ -292,7 +292,19 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
     fetchRecipes(next, sort);
   };
 
-  const allTags = [...new Set(recipes.flatMap(r=>(r.data.tags||[])))];
+  // Count tag frequency, only show tags used on 2+ recipes, sorted by popularity, max 20
+  const tagCounts = recipes.reduce((acc, r) => {
+    (r.data.tags||[]).forEach(t => { acc[t] = (acc[t]||0) + 1; });
+    return acc;
+  }, {});
+  const allTags = Object.entries(tagCounts)
+    .filter(([,count]) => count >= 2)
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 20)
+    .map(([tag]) => tag);
+  const [showAllTags, setShowAllTags] = useState(false);
+  const visibleTags = showAllTags ? allTags : allTags.slice(0, 8);
+
   const filtered = recipes.filter(r => {
     const ms = r.data.name.toLowerCase().includes(search.toLowerCase());
     const mt = !activeTag || (r.data.tags||[]).includes(activeTag);
@@ -329,11 +341,18 @@ function CommunityTab({ myRecipeIds, onAddToMine }) {
 
         {/* Tag filters */}
         {allTags.length>0&&(
-          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-            <span onClick={()=>setActiveTag(null)} style={{background:!activeTag?"#2c2416":"#f0ead8",color:!activeTag?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>All</span>
-            {allTags.map(t=>(
-              <span key={t} onClick={()=>setActiveTag(activeTag===t?null:t)} style={{background:activeTag===t?"#2c2416":"#f0ead8",color:activeTag===t?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>{t}</span>
-            ))}
+          <div style={{marginBottom:8}}>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>
+              <span onClick={()=>setActiveTag(null)} style={{background:!activeTag?"#2c2416":"#f0ead8",color:!activeTag?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>All</span>
+              {visibleTags.map(t=>(
+                <span key={t} onClick={()=>setActiveTag(activeTag===t?null:t)} style={{background:activeTag===t?"#2c2416":"#f0ead8",color:activeTag===t?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>{t}</span>
+              ))}
+              {allTags.length>8&&(
+                <span onClick={()=>setShowAllTags(p=>!p)} style={{background:"#fff",border:"1px solid #ddd",color:"#888",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>
+                  {showAllTags?"Show less ↑":`+${allTags.length-8} more`}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1003,7 +1022,11 @@ export default function App() {
   const addManualItem=()=>{const name=newItemName.trim();if(!name)return;const u=[...manualItems,{id:generateId(),name,amount:newItemAmount.trim(),category:newItemCategory}];setManualItems(u);saveShopping(checkedItems,u);setNewItemName("");setNewItemAmount("");setNewItemCategory("Other");};
   const deleteManualItem=(id)=>{const u=manualItems.filter(i=>i.id!==id);setManualItems(u);saveShopping(checkedItems,u);};
 
-  const allTags  = [...new Set(recipes.flatMap(r=>r.tags||[]))];
+  const myTagCounts = recipes.reduce((acc,r)=>{ (r.tags||[]).forEach(t=>{acc[t]=(acc[t]||0)+1;}); return acc; },{});
+  const allTags = Object.entries(myTagCounts).sort((a,b)=>b[1]-a[1]).map(([tag])=>tag);
+  const [showAllMyTags, setShowAllMyTags] = useState(false);
+  const visibleMyTags = showAllMyTags ? allTags : allTags.slice(0,8);
+
   const filtered = recipes.filter(r=>{
     const ms=r.name.toLowerCase().includes(recipeSearch.toLowerCase());
     const mt=!activeTag||(r.tags||[]).includes(activeTag);
@@ -1095,9 +1118,16 @@ export default function App() {
             </div>
             <input value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)} placeholder="🔍  Search recipes…" style={{width:"100%",padding:"10px 14px",border:"1px solid #ddd",borderRadius:10,fontSize:14,boxSizing:"border-box",marginBottom:12}}/>
             {allTags.length>0&&(
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:18}}>
-                <span onClick={()=>setActiveTag(null)} style={{background:!activeTag?"#2c2416":"#f0ead8",color:!activeTag?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>All</span>
-                {allTags.map(t=><span key={t} onClick={()=>setActiveTag(activeTag===t?null:t)} style={{background:activeTag===t?"#2c2416":"#f0ead8",color:activeTag===t?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>{t}</span>)}
+              <div style={{marginBottom:18}}>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:4}}>
+                  <span onClick={()=>setActiveTag(null)} style={{background:!activeTag?"#2c2416":"#f0ead8",color:!activeTag?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>All</span>
+                  {visibleMyTags.map(t=><span key={t} onClick={()=>setActiveTag(activeTag===t?null:t)} style={{background:activeTag===t?"#2c2416":"#f0ead8",color:activeTag===t?"#faf8f4":"#6a5a40",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>{t}</span>)}
+                  {allTags.length>8&&(
+                    <span onClick={()=>setShowAllMyTags(p=>!p)} style={{background:"#fff",border:"1px solid #ddd",color:"#888",borderRadius:20,padding:"4px 12px",fontSize:12,cursor:"pointer"}}>
+                      {showAllMyTags?"Show less ↑":`+${allTags.length-8} more`}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
             {filtered.length===0&&<p style={{color:"#999",textAlign:"center",padding:"40px 0"}}>No recipes found.</p>}
