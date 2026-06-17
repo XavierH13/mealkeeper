@@ -720,6 +720,23 @@ function Centered({ children }) {
   return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"60vh",fontFamily:"Georgia,serif",color:"#999",fontSize:15}}>{children}</div>;
 }
 
+function LoadIssueScreen() {
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",background:"#faf8f4",padding:20}}>
+      <div style={{textAlign:"center",maxWidth:380}}>
+        <div style={{fontSize:48,marginBottom:16}}>⏳</div>
+        <div style={{fontSize:18,fontWeight:"bold",color:"#2c2416",marginBottom:10}}>Taking longer than usual</div>
+        <div style={{fontSize:14,color:"#888",lineHeight:1.6,marginBottom:24}}>
+          MealKeeper is having trouble connecting right now. This is usually temporary — try again in a moment.
+        </div>
+        <button onClick={()=>window.location.reload()} style={{padding:"12px 28px",background:"#2c2416",color:"#faf8f4",border:"none",borderRadius:10,fontWeight:"bold",cursor:"pointer",fontSize:14}}>
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const btnDark = { padding:"11px 24px",background:"#2c2416",color:"#faf8f4",border:"none",borderRadius:8,fontWeight:"bold",cursor:"pointer",fontSize:14 };
 
 // ── Main App ──────────────────────────────────────────────────────────────────
@@ -734,6 +751,14 @@ export default function App() {
   const [manualItems, setManualItems]   = useState([]);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
+
+  // Watchdog: if loading hangs (e.g. Supabase is overloaded/unresponsive),
+  // surface a retry screen instead of spinning forever
+  useEffect(() => {
+    const t = setTimeout(() => setLoadTimedOut(true), 12000);
+    return () => clearTimeout(t);
+  }, []);
   const [shareToast, setShareToast] = useState("");
 
   const [newItemName, setNewItemName]         = useState("");
@@ -775,7 +800,7 @@ export default function App() {
         if (rData) setRecipes(rData.map(r=>({...r.data,_dbId:r.id,_shareId:r.share_id,_isPublic:r.is_public})));
         if (mData) setMealPlan(mData.data||{});
         if (sData) { setCheckedItems(sData.data?.checkedItems||{}); setManualItems(sData.data?.manualItems||[]); }
-      } catch {}
+      } catch(e) { console.error("Failed to load data from Supabase:", e); }
       setDbLoaded(true);
     })();
   },[session]);
@@ -808,8 +833,49 @@ export default function App() {
     setSaving(false);
   };
 
-  const saveMealPlan   = async (p)=>{if (!session)return; await supabase.from("meal_plans").upsert({user_id:session.user.id,data:p});};
-  const saveShopping   = async (c,m)=>{if (!session)return; await supabase.from("shopping_items").upsert({user_id:session.user.id,data:{checkedItems:c,manualItems:m}});};
+  // Debounced saves: rapid changes (e.g. ticking off several shopping items
+  // in a row) get batched into a single database write after a short pause,
+  // instead of writing on every individual click. This dramatically reduces
+  // database load.
+  const mealPlanTimer  = useRef(null);
+  const shoppingTimer  = useRef(null);
+
+  const saveMealPlan = (p) => {
+    if (!session) return;
+    setSaving(true);
+    if (mealPlanTimer.current) clearTimeout(mealPlanTimer.current);
+    mealPlanTimer.current = setTimeout(async () => {
+      try { await supabase.from("meal_plans").upsert({user_id:session.user.id,data:p}); }
+      catch(e) { console.error("Failed to save meal plan:", e); }
+      setSaving(false);
+    }, 700);
+  };
+
+  const saveShopping = (c,m) => {
+    if (!session) return;
+    setSaving(true);
+    if (shoppingTimer.current) clearTimeout(shoppingTimer.current);
+    shoppingTimer.current = setTimeout(async () => {
+      try { await supabase.from("shopping_items").upsert({user_id:session.user.id,data:{checkedItems:c,manualItems:m}}); }
+      catch(e) { console.error("Failed to save shopping list:", e); }
+      setSaving(false);
+    }, 700);
+  };
+
+  // Flush any pending debounced save immediately if the tab is closed/hidden,
+  // so a rapid "tick item, then close tab" doesn't lose the last change
+  useEffect(() => {
+    const flush = () => {
+      if (mealPlanTimer.current) { clearTimeout(mealPlanTimer.current); supabase.from("meal_plans").upsert({user_id:session?.user?.id,data:mealPlan}); }
+      if (shoppingTimer.current) { clearTimeout(shoppingTimer.current); supabase.from("shopping_items").upsert({user_id:session?.user?.id,data:{checkedItems,manualItems}}); }
+    };
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState==="hidden") flush(); });
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [session, mealPlan, checkedItems, manualItems]);
 
   // ── Fuzzy ingredient matching + shopping helpers ─────────────────────────
   const INGREDIENT_ALIASES = [
@@ -1036,13 +1102,13 @@ export default function App() {
   const signOut = async ()=>{ await supabase.auth.signOut(); };
 
   // ── Render guards ─────────────────────────────────────────────────────────
-  if (session===undefined) return <Centered>Loading…</Centered>;
+  if (session===undefined) return loadTimedOut ? <LoadIssueScreen/> : <Centered>Loading…</Centered>;
 
   // Show shared recipe page (works even when logged out)
   if (shareId) return <SharedRecipePage shareId={shareId} onBack={()=>window.location.href="/"}/>;
 
   if (!session) return <AuthScreen/>;
-  if (!dbLoaded) return <Centered>Loading your data…</Centered>;
+  if (!dbLoaded) return loadTimedOut ? <LoadIssueScreen/> : <Centered>Loading your data…</Centered>;
 
   const userName = session.user.user_metadata?.full_name||session.user.email;
   const myRecipeIds = recipes.map(r=>r.id);
